@@ -1,0 +1,152 @@
+# rss2epub configuration
+# Copy this file to config.yaml and edit as needed.
+#
+# This tool fetches publicly available RSS/Atom feeds and article pages
+# for personal offline reading. It never bypasses paywalls, logins,
+# CAPTCHAs, robots.txt, or other access controls.
+
+outputDir: ./output
+database: ./data/cache.sqlite
+userAgent: "rss2epub/1.0 (personal offline EPUB reader)"
+concurrency: 3
+timeoutMs: 20000
+maxArticlesPerFeed: 30
+rateLimitMs: 1500
+timezone: Asia/Tokyo
+respectRobotsTxt: false
+
+playwright:
+  enabled: true
+  headless: true
+  # Optional: path to a Playwright storageState JSON produced by a
+  # normal, interactive login. Used only for legitimate authenticated
+  # access. Never used to circumvent paywalls.
+  # storageState: ./data/playwright-state.json
+
+epub:
+  titlePrefix: japan-news
+  author: rss2epub
+  splitByCategory: false
+  writingMode: horizontal # horizontal | vertical
+  embedImages: true
+  maxImageBytes: 2500000
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+# Corporate TLS inspection: either set NODE_EXTRA_CA_CERTS / NODE_OPTIONS=--use-system-ca,
+# or point extraCaFile at your organization's root CA PEM.
+# tls:
+#   extraCaFile: ./corp-root.pem
+
+# Feed URLs change. Disable a feed if its URL 404s, and prefer the
+# publisher's official RSS/Atom listing page when adding new sources.
+feeds:
+  - name: NHK
+    url: "https://www3.nhk.or.jp/rss/news/cat0.xml"
+    category: ニュース
+    enabled: true
+    extractor: nhk
+
+  - name: NHK 社会
+    url: "https://www3.nhk.or.jp/rss/news/cat1.xml"
+    category: ニュース
+    enabled: false
+    extractor: nhk
+
+  - name: NHK 政治
+    url: "https://www3.nhk.or.jp/rss/news/cat4.xml"
+    category: ニュース
+    enabled: false
+    extractor: nhk
+
+  - name: NHK 経済
+    url: "https://www3.nhk.or.jp/rss/news/cat5.xml"
+    category: ニュース
+    enabled: false
+    extractor: nhk
+
+  - name: NHK 国際
+    url: "https://www3.nhk.or.jp/rss/news/cat6.xml"
+    category: ニュース
+    enabled: false
+    extractor: nhk
+
+  - name: 毎日新聞
+    url: "https://mainichi.jp/rss/etc/mainichi-flash.rss"
+    category: ニュース
+    enabled: true
+    extractor: mainichi
+
+  - name: 朝日新聞
+    url: "https://www.asahi.com/rss/asahi/newsheadlines.rdf"
+    category: ニュース
+    enabled: true
+    extractor: asahi
+
+  - name: 読売新聞
+    url: "https://www.yomiuri.co.jp/feed/"
+    category: ニュース
+    enabled: false
+    extractor: yomiuri
+    extraction: auto
+
+  - name: 産経ニュース
+    url: "https://www.sankei.com/feed/"
+    category: ニュース
+    enabled: false
+    extractor: sankei
+
+  - name: 日本経済新聞
+    url: "https://www.nikkei.com/rss/"
+    category: ニュース
+    enabled: false
+    extractor: nikkei
+    # Nikkei pages are typically member-only. Expect RSS summaries.
+
+  - name: 日経クロステック
+    url: "https://xtech.nikkei.com/rss/index.rdf"
+    category: IT
+    enabled: true
+    extractor: nikkei
+
+  - name: 時事通信
+    url: "https://www.jiji.com/rss/ranking.rdf"
+    category: ニュース
+    enabled: false
+
+  - name: 共同通信
+    url: "https://www.kyodo.co.jp/feed/"
+    category: ニュース
+    enabled: false
+
+  - name: ITmedia NEWS
+    url: "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml"
+    category: IT
+    enabled: true
+    extractor: itmedia
+
+  - name: ITmedia 総合
+    url: "https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml"
+    category: IT
+    enabled: false
+    extractor: itmedia
+
+  - name: Impress Watch
+    url: "https://www.watch.impress.co.jp/data/rss/1.0/ipw/feed.rdf"
+    category: IT
+    enabled: true
+    extractor: impress
+
+  - name: PC Watch
+    url: "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf"
+    category: IT
+    enabled: false
+    extractor: impress
+
+  - name: INTERNET Watch
+    url: "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf"
+    category: テクノロジー
+    enabled: false
+    extractor: impress
