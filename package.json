@@ -1,0 +1,56 @@
+{
+  "name": "rss2epub",
+  "version": "1.0.0",
+  "description": "Japanese news RSS/Atom aggregator that generates KOReader-ready EPUB 3 files",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "rss2epub": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "rss",
+    "atom",
+    "epub",
+    "koreader",
+    "japanese",
+    "news"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "better-sqlite3": "^12.2.0",
+    "commander": "^14.0.0",
+    "iconv-lite": "^0.6.3",
+    "jsdom": "^26.1.0",
+    "jszip": "^3.10.1",
+    "playwright": "^1.54.0",
+    "robots-parser": "^3.0.1",
+    "rss-parser": "^3.13.0",
+    "sanitize-html": "^2.17.0",
+    "undici": "^7.29.0",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.17.0",
+    "@types/sanitize-html": "^2.16.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

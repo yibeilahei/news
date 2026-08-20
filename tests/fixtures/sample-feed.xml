@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>テストニュース</title>
+    <link>https://example.co.jp/</link>
+    <description>テストフィード</description>
+    <item>
+      <title>臨時国会が開会した</title>
+      <link>https://example.co.jp/news/2026/08/20/diet?utm_source=rss&amp;utm_medium=feed</link>
+      <description>&lt;p&gt;臨時国会がきょう開会した。首相は所信表明演説を行う方針だ。&lt;/p&gt;</description>
+      <pubDate>Thu, 20 Aug 2026 00:00:00 +0900</pubDate>
+      <guid>https://example.co.jp/news/2026/08/20/diet</guid>
+    </item>
+    <item>
+      <title>科学技術の新方針</title>
+      <link>https://www.example.co.jp/news/2026/08/20/tech/</link>
+      <description>政府は科学技術政策の新方針を示した。</description>
+      <pubDate>Thu, 20 Aug 2026 01:00:00 +0900</pubDate>
+      <author>報道部</author>
+    </item>
+  </channel>
+</rss>
