@@ -116,9 +116,33 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   },
 };
 
-export function parseDocument(html: string, url?: string): Document {
-  const dom = new JSDOM(html, url ? { url } : undefined);
-  return dom.window.document;
+const MAX_JSDOM_CHARS = 1_500_000;
+
+function createDom(html: string, url?: string): JSDOM {
+  const clipped = html.length > MAX_JSDOM_CHARS ? html.slice(0, MAX_JSDOM_CHARS) : html;
+  return new JSDOM(clipped, url ? { url } : undefined);
+}
+
+export function withDocument<T>(html: string, url: string | undefined, fn: (doc: Document) => T): T {
+  const dom = createDom(html, url);
+  try {
+    return fn(dom.window.document);
+  } finally {
+    dom.window.close();
+  }
+}
+
+export async function withDocumentAsync<T>(
+  html: string,
+  url: string | undefined,
+  fn: (doc: Document) => Promise<T>,
+): Promise<T> {
+  const dom = createDom(html, url);
+  try {
+    return await fn(dom.window.document);
+  } finally {
+    dom.window.close();
+  }
 }
 
 export function sanitizeArticleHtml(html: string): string {
@@ -128,9 +152,26 @@ export function sanitizeArticleHtml(html: string): string {
 
 export function htmlToText(html: string): string {
   if (!html) return "";
-  const doc = parseDocument(`<div id="root">${html}</div>`);
-  const root = doc.getElementById("root") ?? doc.body;
-  return collapseWhitespace(root?.textContent ?? "");
+  const stripped = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
+      const code = parseInt(n, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    });
+  return collapseWhitespace(stripped);
 }
 
 export function wrapPlainTextAsHtml(text: string): string {
@@ -200,16 +241,17 @@ export function stripChromeFromDocument(doc: Document, extraSelectors: string[] 
 
 export function cleanArticleHtml(html: string): string {
   if (!html) return "";
-  const doc = parseDocument(`<div id="__clean">${html}</div>`);
-  const root = doc.getElementById("__clean");
-  if (!root) return "";
-  stripBoilerplate(root);
-  trimChromeEdges(root, true);
-  pruneEmpty(root);
-  unwrapSingleWrappers(root);
-  trimChromeEdges(root, true);
-  pruneEmpty(root);
-  return sanitizeArticleHtml(root.innerHTML).trim();
+  return withDocument(`<div id="__clean">${html}</div>`, undefined, (doc) => {
+    const root = doc.getElementById("__clean");
+    if (!root) return "";
+    stripBoilerplate(root);
+    trimChromeEdges(root, true);
+    pruneEmpty(root);
+    unwrapSingleWrappers(root);
+    trimChromeEdges(root, true);
+    pruneEmpty(root);
+    return sanitizeArticleHtml(root.innerHTML).trim();
+  });
 }
 
 function stripBoilerplate(root: Element): void {
@@ -457,16 +499,16 @@ function unwrapSingleWrappers(root: Element): void {
 
 export function detectPaywall(html: string, doc?: Document): boolean {
   if (!html) return false;
-  const document = doc ?? parseDocument(html);
+  if (!doc) return withDocument(html, undefined, (parsed) => detectPaywall(html, parsed));
   for (const selector of PAYWALL_SELECTORS) {
     try {
-      if (document.querySelector(selector)) return true;
+      if (doc.querySelector(selector)) return true;
     } catch {
       // invalid selector in this jsdom version
     }
   }
   const flags = [
-    ...document.querySelectorAll(
+    ...doc.querySelectorAll(
       ".flag, .label, .badge, .kiji-pay, [class*='member'], [class*='paid'], [class*='Paid']",
     ),
   ]
@@ -475,7 +517,7 @@ export function detectPaywall(html: string, doc?: Document): boolean {
   if (PAYWALL_FLAG_RE.test(flags) && flags.length < 400) return true;
 
   const banners = [
-    ...document.querySelectorAll(
+    ...doc.querySelectorAll(
       "aside, .banner, .modal, .overlay, [class*='login'], [class*='subscribe']",
     ),
   ]
@@ -544,68 +586,69 @@ export function extractMetadata(doc: Document): {
 
 export function collectImages(html: string, baseUrl: string): ArticleImage[] {
   if (!html) return [];
-  const doc = parseDocument(`<div id="root">${html}</div>`, baseUrl);
-  const images: ArticleImage[] = [];
-  const seen = new Set<string>();
-  for (const img of doc.querySelectorAll("img")) {
-    const src = img.getAttribute("src");
-    if (!src || src.startsWith("data:")) continue;
-    let absolute: string;
-    try {
-      absolute = new URL(src, baseUrl).href;
-    } catch {
-      continue;
+  return withDocument(`<div id="root">${html}</div>`, baseUrl, (doc) => {
+    const images: ArticleImage[] = [];
+    const seen = new Set<string>();
+    for (const img of doc.querySelectorAll("img")) {
+      const src = img.getAttribute("src");
+      if (!src || src.startsWith("data:")) continue;
+      let absolute: string;
+      try {
+        absolute = new URL(src, baseUrl).href;
+      } catch {
+        continue;
+      }
+      if (seen.has(absolute)) continue;
+      seen.add(absolute);
+      const figure = img.closest("figure");
+      const caption = figure?.querySelector("figcaption")?.textContent;
+      images.push({
+        originalUrl: absolute,
+        alt: img.getAttribute("alt") ?? undefined,
+        caption: caption ? collapseWhitespace(caption) : undefined,
+      });
     }
-    if (seen.has(absolute)) continue;
-    seen.add(absolute);
-    const figure = img.closest("figure");
-    const caption = figure?.querySelector("figcaption")?.textContent;
-    images.push({
-      originalUrl: absolute,
-      alt: img.getAttribute("alt") ?? undefined,
-      caption: caption ? collapseWhitespace(caption) : undefined,
-    });
-  }
-  return images.slice(0, 20);
+    return images.slice(0, 20);
+  });
 }
 
 export function extractWithReadability(html: string, url: string): ArticleResult | null {
-  const dom = new JSDOM(html, { url });
-  const doc = dom.window.document;
-  const meta = extractMetadata(doc);
-  if (detectPaywall(html, doc)) {
+  return withDocument(html, url, (doc) => {
+    const meta = extractMetadata(doc);
+    if (detectPaywall(html, doc)) {
+      return {
+        html: "",
+        title: meta.title,
+        author: meta.author,
+        publishedAt: meta.publishedAt,
+        canonicalUrl: meta.canonicalUrl,
+        paywalled: true,
+        inaccessible: true,
+      };
+    }
+    stripChromeFromDocument(doc);
+    let parsed: ReturnType<Readability["parse"]> = null;
+    try {
+      parsed = new Readability(doc).parse();
+    } catch {
+      parsed = null;
+    }
+    if (!parsed?.content) return null;
+    const sanitized = cleanArticleHtml(parsed.content);
+    const text = htmlToText(sanitized);
+    if (!text) return null;
     return {
-      html: "",
-      title: meta.title,
-      author: meta.author,
+      title: parsed.title || meta.title,
+      html: sanitized,
+      text,
+      author: parsed.byline || meta.author,
       publishedAt: meta.publishedAt,
       canonicalUrl: meta.canonicalUrl,
-      paywalled: true,
-      inaccessible: true,
+      images: collectImages(sanitized, url),
+      paywalled: false,
+      inaccessible: false,
     };
-  }
-  stripChromeFromDocument(doc);
-  let parsed: ReturnType<Readability["parse"]> = null;
-  try {
-    parsed = new Readability(doc).parse();
-  } catch {
-    parsed = null;
-  }
-  if (!parsed?.content) return null;
-  const sanitized = cleanArticleHtml(parsed.content);
-  const text = htmlToText(sanitized);
-  if (!text) return null;
-  return {
-    title: parsed.title || meta.title,
-    html: sanitized,
-    text,
-    author: parsed.byline || meta.author,
-    publishedAt: meta.publishedAt,
-    canonicalUrl: meta.canonicalUrl,
-    images: collectImages(sanitized, url),
-    paywalled: false,
-    inaccessible: false,
-  };
+  });
 }
 
 export function extractBySelectors(
@@ -614,56 +657,60 @@ export function extractBySelectors(
   selectors: string[],
   options: ExtractSelectorOptions = {},
 ): ArticleResult | null {
-  const doc = parseDocument(html, url);
-  const meta = extractMetadata(doc);
-  if (detectPaywall(html, doc)) {
+  return withDocument(html, url, (doc) => {
+    const meta = extractMetadata(doc);
+    if (detectPaywall(html, doc)) {
+      return {
+        html: "",
+        title: meta.title,
+        author: meta.author,
+        publishedAt: meta.publishedAt,
+        canonicalUrl: meta.canonicalUrl,
+        paywalled: true,
+        inaccessible: true,
+      };
+    }
+    stripChromeFromDocument(doc, options.removeSelectors ?? []);
+    const collected: Element[] = [];
+    for (const selector of selectors) {
+      try {
+        const matches = [...doc.querySelectorAll(selector)];
+        const unique = matches.filter((el, _i, arr) => {
+          if (arr.some((other) => other !== el && other.contains(el))) return false;
+          if (collected.some((c) => c === el || c.contains(el) || el.contains(c))) return false;
+          const text = collapseWhitespace(el.textContent ?? "");
+          return text.length > 0;
+        });
+        if (unique.length > 3 && unique.every((el) => collapseWhitespace(el.textContent ?? "").length < 400)) {
+          continue;
+        }
+        collected.push(...unique);
+      } catch {
+        // ignore bad selectors
+      }
+    }
+    if (collected.length === 0) return null;
+    const combined = collected
+      .map((el) => (el as HTMLElement).innerHTML?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n");
+    const rawText = htmlToText(sanitizeArticleHtml(combined));
+    if (rawText.length < WEAK_TEXT_CHARS) return null;
+    const sanitized = cleanArticleHtml(combined);
+    const text = htmlToText(sanitized);
+    if (!text) return null;
     return {
-      html: "",
       title: meta.title,
+      html: sanitized,
+      text,
       author: meta.author,
       publishedAt: meta.publishedAt,
       canonicalUrl: meta.canonicalUrl,
-      paywalled: true,
-      inaccessible: true,
+      images: collectImages(sanitized, url),
+      paywalled: false,
+      inaccessible: false,
     };
-  }
-  stripChromeFromDocument(doc, options.removeSelectors ?? []);
-  const collected: Element[] = [];
-  for (const selector of selectors) {
-    try {
-      const matches = [...doc.querySelectorAll(selector)];
-      const unique = matches.filter((el, _i, arr) => {
-        if (arr.some((other) => other !== el && other.contains(el))) return false;
-        if (collected.some((c) => c === el || c.contains(el) || el.contains(c))) return false;
-        const text = collapseWhitespace(el.textContent ?? "");
-        return text.length > 0;
-      });
-      if (unique.length > 3 && unique.every((el) => collapseWhitespace(el.textContent ?? "").length < 400)) {
-        continue;
-      }
-      collected.push(...unique);
-    } catch {
-      // ignore bad selectors
-    }
-  }
-  if (collected.length === 0) return null;
-  const combined = collected.map((el) => (el as HTMLElement).innerHTML?.trim() ?? "").filter(Boolean).join("\n");
-  const rawText = htmlToText(sanitizeArticleHtml(combined));
-  if (rawText.length < WEAK_TEXT_CHARS) return null;
-  const sanitized = cleanArticleHtml(combined);
-  const text = htmlToText(sanitized);
-  if (!text) return null;
-  return {
-    title: meta.title,
-    html: sanitized,
-    text,
-    author: meta.author,
-    publishedAt: meta.publishedAt,
-    canonicalUrl: meta.canonicalUrl,
-    images: collectImages(sanitized, url),
-    paywalled: false,
-    inaccessible: false,
-  };
+  });
 }
 
 export function finalizeResult(result: ArticleResult, url: string): ArticleResult {

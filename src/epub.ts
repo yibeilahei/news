@@ -4,12 +4,13 @@ import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import type { AppConfig, Article } from "./models.js";
 import type { HttpClient } from "./http.js";
-import { cleanArticleHtml, parseDocument } from "./html.js";
+import { cleanArticleHtml, withDocument, withDocumentAsync } from "./html.js";
 import { log } from "./log.js";
 import {
   extensionFromMime,
   formatJaDate,
   hashHex,
+  mapLimit,
   mimeFromExtension,
   xmlEscape,
 } from "./util.js";
@@ -595,10 +596,11 @@ const VOID_TAGS = new Set(["br", "hr", "img", "meta", "link", "input", "source",
 
 export function htmlToXhtmlFragment(html: string): string {
   if (!html) return "";
-  const doc = parseDocument(`<div id="__root">${html}</div>`);
-  const root = doc.getElementById("__root");
-  if (!root) return "";
-  return serializeChildren(root);
+  return withDocument(`<div id="__root">${html}</div>`, undefined, (doc) => {
+    const root = doc.getElementById("__root");
+    if (!root) return "";
+    return serializeChildren(root);
+  });
 }
 
 function serializeChildren(node: Element): string {
@@ -646,65 +648,81 @@ async function embedImages(
   config: AppConfig,
 ): Promise<{ html: string; images: EmbeddedImage[] }> {
   if (!html) return { html, images: [] };
-  const doc = parseDocument(`<div id="__root">${html}</div>`, article.canonicalUrl || article.url);
+  return withDocumentAsync(
+    `<div id="__root">${html}</div>`,
+    article.canonicalUrl || article.url,
+    async (doc) => {
   const root = doc.getElementById("__root");
   if (!root) return { html, images: [] };
   const images: EmbeddedImage[] = [];
   const used = new Set<string>();
   const imgs = Array.from(root.querySelectorAll("img"));
-  let count = 0;
+  const jobs: { img: Element; absolute: string }[] = [];
   for (const img of imgs) {
     const src = img.getAttribute("src");
     if (!src || src.startsWith("data:")) {
       img.remove();
       continue;
     }
-    if (count >= 15) {
-      img.remove();
-      continue;
-    }
-    let absolute: string;
     try {
-      absolute = new URL(src, article.canonicalUrl || article.url).href;
-    } catch {
-      img.remove();
-      continue;
-    }
-    try {
-      const policy = await http.isAllowed(absolute);
-      if (!policy.allowed) {
-        img.remove();
-        continue;
-      }
-      const res = await http.fetchBuffer(absolute, { timeoutMs: Math.min(config.timeoutMs, 15000) });
-      if (res.body.length < 64 || res.body.length > config.epub.maxImageBytes) {
-        img.remove();
-        continue;
-      }
-      const mime =
-        res.headers.get("content-type")?.split(";")[0]?.trim() ||
-        guessMime(absolute, res.body) ||
-        "image/jpeg";
-      if (!mime.startsWith("image/")) {
-        img.remove();
-        continue;
-      }
-      const ext = extensionFromMime(mime) || path.posix.extname(new URL(absolute).pathname) || ".jpg";
-      let localName = `${article.id}-${hashHex(absolute, 10)}${ext}`;
-      if (used.has(localName)) localName = `${article.id}-${images.length}${ext}`;
-      used.add(localName);
-      images.push({ localName, mimeType: mime, data: res.body });
-      img.setAttribute("src", `../images/${localName}`);
-      count += 1;
-    } catch (err) {
-      log.debug("image.skip", {
-        url: absolute,
-        error: err instanceof Error ? err.message : String(err),
+      jobs.push({
+        img,
+        absolute: new URL(src, article.canonicalUrl || article.url).href,
       });
+    } catch {
       img.remove();
     }
   }
+
+  type Fetched =
+    | { img: Element; ok: false }
+    | { img: Element; ok: true; absolute: string; body: Buffer; mime: string };
+  const imageConcurrency = Math.max(1, Math.min(8, config.concurrency));
+  const fetched = await mapLimit(jobs, imageConcurrency, async (job): Promise<Fetched> => {
+    try {
+      const policy = await http.isAllowed(job.absolute);
+      if (!policy.allowed) return { img: job.img, ok: false };
+      const res = await http.fetchBuffer(job.absolute, {
+        timeoutMs: Math.min(config.timeoutMs, 15000),
+      });
+      if (res.body.length < 64 || res.body.length > config.epub.maxImageBytes) {
+        return { img: job.img, ok: false };
+      }
+      const mime =
+        res.headers.get("content-type")?.split(";")[0]?.trim() ||
+        guessMime(job.absolute, res.body) ||
+        "image/jpeg";
+      if (!mime.startsWith("image/")) return { img: job.img, ok: false };
+      return { img: job.img, ok: true, absolute: job.absolute, body: res.body, mime };
+    } catch (err) {
+      log.debug("image.skip", {
+        url: job.absolute,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { img: job.img, ok: false };
+    }
+  });
+
+  let count = 0;
+  for (const item of fetched) {
+    if (!item.ok || count >= 15) {
+      item.img.remove();
+      continue;
+    }
+    const ext =
+      extensionFromMime(item.mime) ||
+      path.posix.extname(new URL(item.absolute).pathname) ||
+      ".jpg";
+    let localName = `${article.id}-${hashHex(item.absolute, 10)}${ext}`;
+    if (used.has(localName)) localName = `${article.id}-${images.length}${ext}`;
+    used.add(localName);
+    images.push({ localName, mimeType: item.mime, data: item.body });
+    item.img.setAttribute("src", `../images/${localName}`);
+    count += 1;
+  }
   return { html: serializeChildren(root), images };
+    },
+  );
 }
 
 function guessMime(url: string, buf: Buffer): string | undefined {

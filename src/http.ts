@@ -36,6 +36,7 @@ interface RobotsInfo {
 
 export class HttpClient {
   private readonly nextSlot = new Map<string, number>();
+  private readonly hostGate = new Map<string, Promise<void>>();
   private readonly robots = new Map<string, RobotsInfo | "failed">();
 
   constructor(
@@ -174,10 +175,28 @@ export class HttpClient {
   }
 
   private async rateLimit(hostname: string, minIntervalMs: number): Promise<void> {
-    const now = Date.now();
-    const next = this.nextSlot.get(hostname) ?? 0;
-    if (now < next) await sleep(next - now);
-    this.nextSlot.set(hostname, Date.now() + minIntervalMs);
+    if (minIntervalMs <= 0) return;
+    const prev = this.hostGate.get(hostname) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.hostGate.set(
+      hostname,
+      prev.then(
+        () => mine,
+        () => mine,
+      ),
+    );
+    try {
+      await prev;
+      const now = Date.now();
+      const next = this.nextSlot.get(hostname) ?? 0;
+      if (now < next) await sleep(next - now);
+      this.nextSlot.set(hostname, Date.now() + minIntervalMs);
+    } finally {
+      release();
+    }
   }
 
   private async loadRobots(origin: string): Promise<RobotsInfo | "failed"> {
@@ -216,6 +235,27 @@ function describeError(err: unknown): string {
     return code ? `${cause.message} (${code})` : `${err.message}: ${cause.message}`;
   }
   return err.message;
+}
+
+export async function closeHttp(): Promise<void> {
+  try {
+    const { getGlobalDispatcher } = await import("undici");
+    const dispatcher = getGlobalDispatcher();
+    const close = dispatcher.close?.bind(dispatcher);
+    const destroy = dispatcher.destroy?.bind(dispatcher);
+    if (close) {
+      await Promise.race([
+        Promise.resolve(close()),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 500);
+          timer.unref();
+        }),
+      ]);
+    }
+    destroy?.();
+  } catch {
+    // native fetch dispatcher may already be torn down
+  }
 }
 
 export async function applyTlsConfig(extraCaFile?: string): Promise<void> {

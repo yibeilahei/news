@@ -26,12 +26,22 @@ export async function fetchFeedItems(
   return parseFeedXml(body, feed, url);
 }
 
+/**
+ * Japanese RSS titles often contain a raw `&` ("A&B", "衣装&写真展").
+ * XML then treats `&…` as an entity name and blows up on the next
+ * ideographic space (U+3000) — sax: "Invalid character in entity name".
+ * Escape ampersands that are not well-formed XML/HTML entity references.
+ */
+export function sanitizeFeedXml(xml: string): string {
+  return xml.replace(/&(?!(?:[A-Za-z_][\w.-]*|#(?:\d+|x[0-9A-Fa-f]+));)/g, "&amp;");
+}
+
 export async function parseFeedXml(
   xml: string,
   feed: FeedConfig,
   sourceUrl = feed.url,
 ): Promise<FeedItem[]> {
-  const parsed = await parser.parseString(xml);
+  const parsed = await parser.parseString(sanitizeFeedXml(xml));
   const items: FeedItem[] = [];
   for (const raw of parsed.items ?? []) {
     const item = raw as typeof raw & {

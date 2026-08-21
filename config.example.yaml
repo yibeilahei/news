@@ -8,10 +8,11 @@
 outputDir: ./output
 database: ./data/cache.sqlite
 userAgent: "rss2epub/1.0 (personal offline EPUB reader)"
-concurrency: 3
+concurrency: 8          # max article bodies in flight across all feeds
+feedConcurrency: 4      # feeds processed at the same time
 timeoutMs: 20000
 maxArticlesPerFeed: 30
-rateLimitMs: 1500
+rateLimitMs: 500        # min delay between requests to the same host
 timezone: Asia/Tokyo
 respectRobotsTxt: false
 

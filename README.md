@@ -70,6 +70,9 @@ Top-level options of note:
 | `epub.writingMode` | `horizontal` (default) or `vertical` |
 | `respectRobotsTxt` | Honor `robots.txt` when `true` (code default). The example config sets `false`. |
 | `timezone` | Date math for `--date` and cache lookups (default `Asia/Tokyo`) |
+| `concurrency` | Max article bodies in flight **across all feeds** (example: `8`) |
+| `feedConcurrency` | Feeds whose RSS can be fetched/processed at the same time (example: `4`) |
+| `rateLimitMs` | Minimum delay between HTTP requests to the **same host** (example: `500`) |
 
 Publisher RSS URLs change. If a feed 404s, disable it and copy the current URL from the publisher’s own RSS listing.
 
@@ -81,6 +84,7 @@ npx rss2epub update --date 2026-08-20
 npx rss2epub update --feed NHK
 npx rss2epub update --category IT
 npx rss2epub update --max-articles 100
+npx rss2epub update --concurrency 8 --feed-concurrency 4
 npx rss2epub update --no-playwright
 npx rss2epub update --from-cache --date 2026-08-20
 npx rss2epub update --split-by-category
@@ -102,6 +106,25 @@ Global flags: `-c, --config <path>` (default `config.yaml` / `config.yml` in the
 During development you can run `npm run dev -- update` (or `npx tsx src/cli.ts update`) instead of the compiled binary.
 
 Dates use `timezone` from config (`Asia/Tokyo` by default). `--date` other than today generates from the SQLite cache (historical RSS is not rewound). `clean-cache` without `--all` deletes entries older than 30 days.
+
+### Speeding up `update`
+
+Raising only `concurrency` used to do little: feeds ran one after another, and `rateLimitMs` caps requests **per host**. `update` now runs several feeds at once (`feedConcurrency`) and still spaces hits to the same publisher.
+
+Typical personal-reader values:
+
+```yaml
+concurrency: 8          # max article bodies in flight (global)
+feedConcurrency: 4      # distinct publishers at once
+rateLimitMs: 500        # 2 req/s per hostname
+```
+
+```sh
+npx rss2epub update --concurrency 8 --feed-concurrency 4
+npx rss2epub update --no-playwright
+```
+
+`--no-playwright` skips Chromium fallback (the slowest path). Cached full articles are not re-fetched. If a site starts returning 429, raise `rateLimitMs` or lower `concurrency` for that run.
 
 ### Output
 

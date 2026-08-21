@@ -45,7 +45,14 @@ export class PlaywrightSession {
   }
 
   async close(): Promise<void> {
-    await this.context?.close().catch(() => undefined);
+    try {
+      if (this.context) {
+        await Promise.all(this.context.pages().map((p) => p.close().catch(() => undefined)));
+        await this.context.close();
+      }
+    } catch {
+      // ignore
+    }
     await this.browser?.close().catch(() => undefined);
     this.context = null;
     this.browser = null;
@@ -55,7 +62,12 @@ export class PlaywrightSession {
     if (this.context) return this.context;
     log.info("playwright.launch", { headless: this.opts.headless });
     const { chromium } = await import("playwright");
-    this.browser = await chromium.launch({ headless: this.opts.headless });
+    this.browser = await chromium.launch({
+      headless: this.opts.headless,
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+    });
     this.context = await this.browser.newContext({
       userAgent: this.opts.userAgent,
       locale: "ja-JP",
@@ -190,9 +202,6 @@ async function extractViaPlaywright(
     page = await opts.playwright.page();
     page.setDefaultTimeout(opts.timeoutMs);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: opts.timeoutMs });
-    await page.waitForLoadState("networkidle", { timeout: Math.min(opts.timeoutMs, 8000) }).catch(
-      () => undefined,
-    );
     const html = await page.content();
     if (detectAccessDenied(html) || looksLikeCaptcha(html, await page.title())) {
       return emptyArticleResult({ inaccessible: true });

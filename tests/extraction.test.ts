@@ -10,6 +10,7 @@ import {
 } from "../src/html.js";
 import { findExtractor, listExtractorNames } from "../src/extractors/index.js";
 import { normalizeConfig } from "../src/config.js";
+import { Semaphore } from "../src/util.js";
 
 describe("paywall detection", () => {
   it("detects Japanese paywall banners and never treats them as extractable", () => {
@@ -266,10 +267,40 @@ describe("config", () => {
     });
     expect(cfg.feeds[0].enabled).toBe(true);
     expect(cfg.epub.writingMode).toBe("horizontal");
+    expect(cfg.feedConcurrency).toBe(4);
+    const tuned = normalizeConfig({ concurrency: 8, feedConcurrency: 3, rateLimitMs: 500 });
+    expect(tuned.concurrency).toBe(8);
+    expect(tuned.feedConcurrency).toBe(3);
+    expect(tuned.rateLimitMs).toBe(500);
     expect(() =>
       normalizeConfig({
         feeds: [{ name: "x", url: "https://example.com/rss", extraction: "bypass" }],
       }),
     ).toThrow(/extraction/);
+  });
+});
+
+describe("htmlToText", () => {
+  it("strips tags and decodes entities without a DOM", () => {
+    expect(htmlToText("<p>漢字&amp;仮名</p><div>続き</div>")).toBe("漢字&仮名 続き");
+  });
+});
+
+describe("Semaphore", () => {
+  it("caps concurrent runners", async () => {
+    const gate = new Semaphore(2);
+    let current = 0;
+    let peak = 0;
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        gate.run(async () => {
+          current += 1;
+          peak = Math.max(peak, current);
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          current -= 1;
+        }),
+      ),
+    );
+    expect(peak).toBeLessThanOrEqual(2);
   });
 });

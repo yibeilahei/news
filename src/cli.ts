@@ -4,7 +4,7 @@ import { loadConfig } from "./config.js";
 import { ArticleCache } from "./cache.js";
 import { collectArticles } from "./articles.js";
 import { writeEpubs } from "./epub.js";
-import { applyTlsConfig, HttpClient } from "./http.js";
+import { applyTlsConfig, closeHttp, HttpClient } from "./http.js";
 import { startServer } from "./server.js";
 import { fetchFeedItems, limitFeedItems } from "./feeds.js";
 import { extractArticle, PlaywrightSession } from "./extractor.js";
@@ -14,6 +14,8 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { version: string };
+
+let persistProcess = false;
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -35,6 +37,8 @@ async function main(): Promise<void> {
     .option("--feed <name>", "only this feed name")
     .option("--category <name>", "only this category")
     .option("--max-articles <n>", "max articles per feed", parseInt)
+    .option("--concurrency <n>", "parallel article fetches per feed", parseInt)
+    .option("--feed-concurrency <n>", "feeds to process in parallel", parseInt)
     .option("--no-playwright", "disable Playwright even if enabled in config")
     .option("--from-cache", "generate from cache without fetching")
     .option("--split-by-category", "also write one EPUB per category")
@@ -42,6 +46,8 @@ async function main(): Promise<void> {
       const global = cmd.optsWithGlobals() as { config?: string };
       const config = await readyConfig(global.config);
       if (opts.splitByCategory) config.epub.splitByCategory = true;
+      if (opts.concurrency) config.concurrency = opts.concurrency;
+      if (opts.feedConcurrency) config.feedConcurrency = opts.feedConcurrency;
       const date = opts.date ?? todayIso(config.timezone);
       if (!isIsoDate(date)) {
         throw new Error(`Invalid date: ${date} (expected YYYY-MM-DD)`);
@@ -65,6 +71,8 @@ async function main(): Promise<void> {
           maxArticles: opts.maxArticles,
           playwrightEnabled: opts.playwright === false ? false : undefined,
           fromCache: Boolean(opts.fromCache),
+          concurrency: opts.concurrency,
+          feedConcurrency: opts.feedConcurrency,
         });
         if (articles.length === 0) {
           log.warn("update.no_articles", { date });
@@ -226,6 +234,7 @@ async function main(): Promise<void> {
     .option("--port <n>", "port", (v) => parseInt(v, 10))
     .option("--host <host>", "bind address")
     .action((opts, cmd) => {
+      persistProcess = true;
       const global = cmd.optsWithGlobals() as { config?: string };
       const config = loadConfig(global.config);
       startServer({
@@ -248,7 +257,21 @@ function pad(s: string, n: number): string {
   return s.length >= n ? s : s + " ".repeat(n - s.length);
 }
 
-main().catch((err) => {
-  log.error("fatal", { error: err instanceof Error ? err.message : String(err) });
-  process.exitCode = 1;
-});
+async function shutdown(): Promise<void> {
+  await closeHttp();
+}
+
+main()
+  .catch((err) => {
+    log.error("fatal", { error: err instanceof Error ? err.message : String(err) });
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    if (persistProcess) return;
+    try {
+      await shutdown();
+    } catch {
+      // ignore
+    }
+    process.exit(process.exitCode ?? 0);
+  });

@@ -47,6 +47,27 @@ export async function mapLimit<T, R>(
   return results;
 }
 
+/** Bounds how many async tasks run at once across callers. */
+export class Semaphore {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(private readonly max: number) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.max) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.active += 1;
+    try {
+      return await fn();
+    } finally {
+      this.active -= 1;
+      this.waiters.shift()?.();
+    }
+  }
+}
+
 export function collapseWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }

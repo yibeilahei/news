@@ -20,7 +20,7 @@ import {
 import type { HttpClient } from "./http.js";
 import { HttpError } from "./http.js";
 import { log } from "./log.js";
-import { formatIsoDate, hashId, mapLimit, todayIso } from "./util.js";
+import { formatIsoDate, hashId, mapLimit, Semaphore, todayIso } from "./util.js";
 
 export interface UpdateOptions {
   date: string;
@@ -29,6 +29,8 @@ export interface UpdateOptions {
   maxArticles?: number;
   playwrightEnabled?: boolean;
   fromCache?: boolean;
+  concurrency?: number;
+  feedConcurrency?: number;
 }
 
 export async function collectArticles(
@@ -73,9 +75,17 @@ export async function collectArticles(
 
   const deduper = new Deduper();
   const collected: Article[] = [];
+  const articleConcurrency = options.concurrency ?? config.concurrency;
+  const feedConcurrency = options.feedConcurrency ?? config.feedConcurrency;
+  const articleGate = new Semaphore(articleConcurrency);
+  log.info("update.concurrency", {
+    articles: articleConcurrency,
+    feeds: feedConcurrency,
+    rateLimitMs: config.rateLimitMs,
+  });
 
   try {
-    for (const feed of feeds) {
+    await mapLimit(feeds, feedConcurrency, async (feed) => {
       try {
         const timeout = feed.timeoutMs ?? config.timeoutMs;
         const rawItems = await fetchFeedItems(feed, http, timeout);
@@ -87,40 +97,42 @@ export async function collectArticles(
         log.info("extract.start", { name: feed.name, items: items.length });
 
         let done = 0;
-        const processed = await mapLimit(items, config.concurrency, async (item) => {
-          try {
-            const article = await processItem({
-              item,
-              feed,
-              config,
-              cache,
-              http,
-              playwright,
-              deduper,
-              date,
-              stats,
-            });
-            done += 1;
-            log.info("extract.progress", {
-              feed: feed.name,
-              done,
-              total: items.length,
-              status: article?.extractionStatus ?? "failed",
-              title: (article?.title ?? item.title).slice(0, 80),
-            });
-            return article;
-          } catch (err) {
-            done += 1;
-            log.warn("article.failed", {
-              feed: feed.name,
-              done,
-              total: items.length,
-              url: item.url,
-              error: err instanceof Error ? err.message : String(err),
-            });
-            stats.failed += 1;
-            return null;
-          }
+        const processed = await mapLimit(items, articleConcurrency, async (item) => {
+          return articleGate.run(async () => {
+            try {
+              const article = await processItem({
+                item,
+                feed,
+                config,
+                cache,
+                http,
+                playwright,
+                deduper,
+                date,
+                stats,
+              });
+              done += 1;
+              log.info("extract.progress", {
+                feed: feed.name,
+                done,
+                total: items.length,
+                status: article?.extractionStatus ?? "failed",
+                title: (article?.title ?? item.title).slice(0, 80),
+              });
+              return article;
+            } catch (err) {
+              done += 1;
+              log.warn("article.failed", {
+                feed: feed.name,
+                done,
+                total: items.length,
+                url: item.url,
+                error: err instanceof Error ? err.message : String(err),
+              });
+              stats.failed += 1;
+              return null;
+            }
+          });
         });
 
         for (const article of processed) {
@@ -138,7 +150,7 @@ export async function collectArticles(
           log.warn("feed.robots_blocked", { name: feed.name, url: feed.url });
         }
       }
-    }
+    });
   } finally {
     await playwright?.close();
   }

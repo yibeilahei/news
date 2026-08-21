@@ -93,6 +93,7 @@ export interface AppConfig {
   database: string;
   userAgent: string;
   concurrency: number;
+  feedConcurrency: number;
   timeoutMs: number;
   maxArticlesPerFeed: number;
   rateLimitMs: number;

@@ -17,10 +17,11 @@ export function defaultConfig(): AppConfig {
     outputDir: "./output",
     database: "./data/cache.sqlite",
     userAgent: "rss2epub/1.0 (personal offline EPUB reader)",
-    concurrency: 3,
+    concurrency: 6,
+    feedConcurrency: 4,
     timeoutMs: 20_000,
     maxArticlesPerFeed: 30,
-    rateLimitMs: 1500,
+    rateLimitMs: 800,
     timezone: "Asia/Tokyo",
     respectRobotsTxt: true,
     playwright: {
@@ -87,6 +88,7 @@ export function normalizeConfig(
     database: path.resolve(baseDir, String(raw.database ?? defaults.database)),
     userAgent: String(raw.userAgent ?? defaults.userAgent),
     concurrency: asPositiveInt(raw.concurrency, defaults.concurrency),
+    feedConcurrency: asPositiveInt(raw.feedConcurrency, defaults.feedConcurrency),
     timeoutMs: asPositiveInt(raw.timeoutMs, defaults.timeoutMs),
     maxArticlesPerFeed: asPositiveInt(
       raw.maxArticlesPerFeed,
