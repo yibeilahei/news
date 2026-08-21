@@ -12,4 +12,5 @@ export const yomiuriExtractor = createExtractor({
     ".article-body",
   ],
   waitSelector: ".p-main-contents, .c-article-body, article",
+  removeSelectors: [".c-article-related", ".p-related", ".c-sns"],
 });

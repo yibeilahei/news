@@ -4,12 +4,12 @@ export const itmediaExtractor = createExtractor({
   name: "itmedia",
   hosts: ["itmedia.co.jp"],
   selectors: [
-    "#cmsBody",
     "div.inner-article-body",
-    "#article",
+    "#cmsBody .inner-article-body",
     ".inner-article-body",
+    "#cmsBody",
     ".article-body",
-    "#cmsBody .inner",
   ],
-  waitSelector: "#cmsBody, #article, .inner-article-body",
+  waitSelector: "div.inner-article-body, #cmsBody, #article",
+  removeSelectors: [".btn_list", ".sns", ".social", ".endkw", ".related", ".cmsByline"],
 });

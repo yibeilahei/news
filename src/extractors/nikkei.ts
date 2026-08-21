@@ -13,4 +13,5 @@ export const nikkeiExtractor = createExtractor({
     ".cmn-article_text",
   ],
   waitSelector: "article, [class*='article__body'], .article-body",
+  removeSelectors: [".relatedNews", ".m-article_related", ".share"],
 });

@@ -14,4 +14,5 @@ export const asahiExtractor = createExtractor({
     "#main .BodyText",
   ],
   waitSelector: ".nfArticleText, #articleText, .ArticleText, article",
+  removeSelectors: [".RelatedArticle", ".related-article", ".p-article__related"],
 });

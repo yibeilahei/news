@@ -8,10 +8,10 @@ export const nhkExtractor = createExtractor({
     "#news_textmore",
     ".content--detail-body",
     ".content--body",
-    ".content--summary",
-    "#newsarticle",
-    ".article-main",
+    "[class*='DetailBody']",
     "article .content",
+    "#newsarticle",
   ],
   waitSelector: "#news_textbody, .content--detail-body, #newsarticle, article",
+  removeSelectors: [".content--related", ".related-news", ".c-related"],
 });

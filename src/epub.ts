@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
 import type { AppConfig, Article } from "./models.js";
 import type { HttpClient } from "./http.js";
-import { parseDocument } from "./html.js";
+import { cleanArticleHtml, parseDocument } from "./html.js";
 import { log } from "./log.js";
 import {
   extensionFromMime,
@@ -104,7 +104,7 @@ async function buildEpubFile(
       chapterIndex += 1;
       const id = `ch${String(chapterIndex).padStart(4, "0")}`;
       const href = `text/${id}.xhtml`;
-      let html = article.html;
+      let html = cleanArticleHtml(article.html);
       const images: EmbeddedImage[] = [];
       if (config.epub.embedImages) {
         log.info("epub.article", {
@@ -477,7 +477,7 @@ function articleXhtml(
   let main: string;
   if (article.paywalled || article.extractionStatus === "paywalled") {
     const summary = article.rssSummary
-      ? htmlToXhtmlFragment(article.rssSummary)
+      ? htmlToXhtmlFragment(cleanArticleHtml(article.rssSummary))
       : "<p>（概要なし）</p>";
     main = `<p class="paywall-notice noindent">有料記事・本文取得不可</p>
 <p class="rss-label noindent">RSSで取得できた概要:</p>
@@ -491,9 +491,9 @@ ${summary}
     (!bodyHtml && article.rssSummary)
   ) {
     const summary = article.rssSummary
-      ? htmlToXhtmlFragment(article.rssSummary)
+      ? htmlToXhtmlFragment(cleanArticleHtml(article.rssSummary))
       : bodyHtml
-        ? htmlToXhtmlFragment(bodyHtml)
+        ? htmlToXhtmlFragment(cleanArticleHtml(bodyHtml))
         : "<p>（本文を取得できませんでした）</p>";
     const notice =
       article.extractionStatus === "skipped_robots"
@@ -505,7 +505,9 @@ ${summary}
 ${summary}
 </div>`;
   } else {
-    main = htmlToXhtmlFragment(bodyHtml || article.rssSummary || "<p>（本文なし）</p>");
+    main = htmlToXhtmlFragment(
+      cleanArticleHtml(bodyHtml || article.rssSummary || "<p>（本文なし）</p>"),
+    );
   }
   const url = article.canonicalUrl || article.url;
   const body = `  <article>

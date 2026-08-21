@@ -4,14 +4,18 @@ export const mainichiExtractor = createExtractor({
   name: "mainichi",
   hosts: ["mainichi.jp"],
   selectors: [
+    "div.articledetail-body",
     "#main-body",
     ".main-text",
-    "div.articledetail-body",
-    ".article-body",
-    "#article",
     ".articledetail-body",
-    "article .body",
-    ".main-contents",
+    ".article-body",
   ],
   waitSelector: "#main-body, .articledetail-body, .article-body, article",
+  removeSelectors: [
+    ".articledetail-subcontents",
+    ".articletool",
+    ".articletag",
+    ".ad-article-text",
+    ".articlelist-item",
+  ],
 });

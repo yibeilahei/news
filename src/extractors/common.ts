@@ -14,6 +14,7 @@ export function createExtractor(opts: {
   hosts: string[];
   selectors: string[];
   waitSelector?: string;
+  removeSelectors?: string[];
 }): SiteExtractor {
   return {
     name: opts.name,
@@ -21,7 +22,9 @@ export function createExtractor(opts: {
       return hostMatches(url, opts.hosts);
     },
     async extractFromHtml(html: string, url: URL): Promise<ArticleResult | null> {
-      const selected = extractBySelectors(html, url.href, opts.selectors);
+      const selected = extractBySelectors(html, url.href, opts.selectors, {
+        removeSelectors: opts.removeSelectors,
+      });
       if (selected) return finalizeResult(selected, url.href);
       const readable = extractWithReadability(html, url.href);
       if (readable) return finalizeResult(readable, url.href);

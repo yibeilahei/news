@@ -13,4 +13,5 @@ export const sankeiExtractor = createExtractor({
     ".article__body",
   ],
   waitSelector: "article, .article-body, [class*='article-body']",
+  removeSelectors: [".related-article", ".c-related", ".article-share"],
 });
