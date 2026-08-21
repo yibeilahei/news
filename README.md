@@ -20,10 +20,9 @@ RSS/Atom feeds
 
 ## Install
 
-```powershell
-cd D:\news
+```sh
 npm install
-copy config.example.yaml config.yaml
+cp config.example.yaml config.yaml
 npx playwright install chromium
 npm run build
 ```
@@ -62,11 +61,21 @@ Per-feed options:
 | `extractor` | Site plugin (`nhk`, `sankei`, `mainichi`, `asahi`, `yomiuri`, `nikkei`, `itmedia`, `impress`, `generic`) |
 | `timeoutMs` | Override request timeout |
 
+Top-level options of note:
+
+| Field | Meaning |
+| --- | --- |
+| `epub.titlePrefix` | EPUB title and filename stem (example config: `japan-news`) |
+| `epub.splitByCategory` | Also write one EPUB per category |
+| `epub.writingMode` | `horizontal` (default) or `vertical` |
+| `respectRobotsTxt` | Honor `robots.txt` when `true` (code default). The example config sets `false`. |
+| `timezone` | Date math for `--date` and cache lookups (default `Asia/Tokyo`) |
+
 Publisher RSS URLs change. If a feed 404s, disable it and copy the current URL from the publisher’s own RSS listing.
 
 ## Commands
 
-```powershell
+```sh
 npx rss2epub update
 npx rss2epub update --date 2026-08-20
 npx rss2epub update --feed NHK
@@ -74,35 +83,44 @@ npx rss2epub update --category IT
 npx rss2epub update --max-articles 100
 npx rss2epub update --no-playwright
 npx rss2epub update --from-cache --date 2026-08-20
+npx rss2epub update --split-by-category
 
 npx rss2epub list-feeds
 npx rss2epub test-feed NHK
+npx rss2epub test-feed NHK --limit 5
 
 npx rss2epub clean-cache
 npx rss2epub clean-cache --older-than 14
 npx rss2epub clean-cache --all
 
 npx rss2epub serve
+npx rss2epub serve --port 8080 --host 0.0.0.0
 ```
 
-During development you can run `npx tsx src/cli.ts update` instead of the compiled binary.
+Global flags: `-c, --config <path>` (default `config.yaml` / `config.yml` in the current directory) and `-v, --verbose`.
 
-Dates are interpreted in `Asia/Tokyo`. `--date` other than today generates from the SQLite cache (historical RSS is not rewound).
+During development you can run `npm run dev -- update` (or `npx tsx src/cli.ts update`) instead of the compiled binary.
+
+Dates use `timezone` from config (`Asia/Tokyo` by default). `--date` other than today generates from the SQLite cache (historical RSS is not rewound). `clean-cache` without `--all` deletes entries older than 30 days.
 
 ### Output
 
+Filenames are `{date}-{epub.titlePrefix}.epub`. With the example config (`titlePrefix: japan-news`):
+
 ```
 output/
-    2026-08-20-日本ニュース.epub
+    2026-08-20-japan-news.epub
 ```
 
-With `epub.splitByCategory: true` or `--split-by-category`:
+With `epub.splitByCategory: true` or `--split-by-category`, the combined file is still written, plus one EPUB per category:
 
 ```
-2026-08-20-日本ニュース.epub
+2026-08-20-japan-news.epub
 2026-08-20-IT.epub
 2026-08-20-テクノロジー.epub
 ```
+
+If `titlePrefix` is omitted, the code default is `日本ニュース`.
 
 ### Local HTTP server
 
@@ -115,7 +133,13 @@ For each article:
 1. If the RSS/Atom body is substantial, use it.
 2. Otherwise fetch the page over HTTP and run the matching site extractor, falling back to Readability.
 3. If the HTTP result is empty or clearly JS-rendered, open the URL in Playwright.
-4. If the page is paywalled, blocked, or otherwise inaccessible: keep the RSS title and summary, mark it 「有料記事・本文取得不可」, include the original URL, and continue.
+4. If the page is paywalled, blocked, or otherwise inaccessible: keep the RSS title and summary, mark it accordingly, include the original URL, and continue.
+
+Marks used in the EPUB:
+
+- Paywalled: 「有料記事・本文取得不可」
+- Blocked by robots.txt: 「robots.txt により本文取得を省略しました」
+- Other inaccessible / failed fetches: 「本文取得不可」
 
 Legitimate browser logins are allowed via `playwright.storageState` (a Playwright storageState JSON you create yourself after a normal login). That path is not a paywall bypass.
 
@@ -135,7 +159,7 @@ Title
 Source · publication date
 Author (if known)
 Body
-Original URL
+原文: URL
 ```
 
 Paywalled / inaccessible:
@@ -143,10 +167,10 @@ Paywalled / inaccessible:
 ```
 Title
 Source · publication date
-「有料記事・本文取得不可」
+「有料記事・本文取得不可」  (or the inaccessible / robots notice)
 RSSで取得できた概要:
 …
-Original URL
+原文: URL
 ```
 
 ## Cache
@@ -169,18 +193,22 @@ Articles:
   61 full articles
   18 RSS summaries only
   8 inaccessible/duplicates
+
+Detail:
+  paywalled=3 inaccessible=2 duplicates=3
+  cached=0 failed=1 robots=2
 ```
 
 `--verbose` prints per-article debug lines.
 
 ## TLS / corporate proxies
 
-On Node.js 22.15+/24, rss2epub merges the OS certificate store so Windows corporate TLS inspection usually works without extra setup.
+On Node.js 22.15+/24, rss2epub merges the OS certificate store so corporate TLS inspection usually works without extra setup.
 
 If requests still fail with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`:
 
-```powershell
-$env:NODE_OPTIONS="--use-system-ca"
+```sh
+export NODE_OPTIONS="--use-system-ca"
 npx rss2epub update
 ```
 
@@ -196,9 +224,10 @@ TLS verification is never disabled.
 ## Project layout
 
 ```
-rss2epub/
+.
 ├── package.json
 ├── tsconfig.json
+├── vitest.config.ts
 ├── README.md
 ├── config.example.yaml
 ├── src/
@@ -208,12 +237,19 @@ rss2epub/
 │   ├── feeds.ts
 │   ├── articles.ts
 │   ├── extractor.ts
+│   ├── html.ts
+│   ├── http.ts
 │   ├── dedup.ts
 │   ├── cache.ts
 │   ├── epub.ts
 │   ├── server.ts
+│   ├── log.ts
 │   ├── models.ts
+│   ├── util.ts
 │   └── extractors/
+│       ├── index.ts
+│       ├── types.ts
+│       ├── common.ts
 │       ├── generic.ts
 │       ├── nhk.ts
 │       ├── sankei.ts
@@ -227,12 +263,14 @@ rss2epub/
     ├── feeds.test.ts
     ├── extraction.test.ts
     ├── dedup.test.ts
-    └── epub.test.ts
+    ├── epub.test.ts
+    └── fixtures/
+        └── sample-feed.xml
 ```
 
 ## Tests
 
-```powershell
+```sh
 npm test
 ```
 
@@ -246,3 +284,4 @@ This is a personal offline reader.
 - Uses timeouts, retries with backoff, per-domain rate limits, and bounded concurrency
 - One failed feed or article never aborts the run
 - Does **not** break paywalls, CAPTCHAs, authentication, or other access controls
+```
